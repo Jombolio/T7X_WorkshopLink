@@ -75,13 +75,16 @@ set "is_mod=0"
 set "mapname="
 
 :: Detect mods first
+set "foldername="
 if exist "!src!\zm_mod.ff" (
     set "is_mod=1"
     set "mapname=zm_mod"
+    call :ReadFolderName "!src!\workshop.json" foldername
 ) else (
     for %%F in ("!src!\*_core_mod.ff") do (
         set "is_mod=1"
         set "mapname=%%~nF"
+        call :ReadFolderName "!src!\workshop.json" foldername
         goto :found_mod
     )
 )
@@ -89,7 +92,7 @@ if exist "!src!\zm_mod.ff" (
 
 :: If no mod found, check for usermaps
 if !is_mod! equ 0 (
-    for %%F in ("!src!\zm_*.ff") do (
+    for %%F in ("!src!\cp_*.ff" "!src!\mp_*.ff" "!src!\zm_*.ff") do (
         set "mapname=%%~nF"
         goto :found_map
     )
@@ -97,34 +100,41 @@ if !is_mod! equ 0 (
 :found_map
 
 if not defined mapname (
-    echo   No zm_*.ff or *_core_mod.ff found, skipping.
-    endlocal
-    goto :eof
-)
-
-if not defined mapname (
-    echo   No zm_*.ff or *_core_mod.ff found, skipping.
+    echo   No cp_*.ff, mp_*.ff, zm_*.ff or *_core_mod.ff found, skipping.
     endlocal
     goto :eof
 )
 
 :: Determine target folder
 if !is_mod! equ 1 (
-    set "target=%mods%\!mapname!_!shortname!"
+    :: For mods, use FolderName from workshop.json if available, otherwise fallback
+    if defined foldername (
+        set "target=%mods%\!foldername!"
+    ) else (
+        set "target=%mods%\!mapname!_!shortname!"
+    )
+    set "link_target=!target!\zone"
 ) else (
+    :: For usermaps, create folder named after the map, then symlink 'zone' inside
     set "target=%usermaps%\!mapname!"
+    set "link_target=!target!\zone"
 )
 
 :: Skip if link exists
-if exist "!target!" (
-    echo   Skipping existing link: !target!
+if exist "!link_target!" (
+    echo   Skipping existing link: !link_target!
     endlocal
     goto :eof
 )
 
+:: Create the parent folder first (for both mods and usermaps)
+if not exist "!target!" (
+    md "!target!"
+)
+
 :: Create symbolic link
-echo   Linking "!shortname!" → "!target!"
-mklink /J "!target!" "!src!" >nul 2>&1
+echo   Linking "!shortname!" → "!link_target!"
+mklink /J "!link_target!" "!src!" >nul 2>&1
 if errorlevel 1 (
     echo   [ERROR] Failed to create link.
     endlocal
@@ -140,4 +150,19 @@ if !is_mod! equ 1 (
 ) else (
     endlocal & set /a total_maps+=1
 )
+goto :eof
+
+:: Subroutine to read FolderName from workshop.json
+:ReadFolderName
+setlocal enabledelayedexpansion
+set "json_file=%~1"
+set "result="
+
+if exist "%json_file%" (
+    for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "try { $json = Get-Content '%json_file%' -Raw | ConvertFrom-Json; Write-Output $json.FolderName } catch { }"`) do (
+        set "result=%%A"
+    )
+)
+
+endlocal & set "%~2=%result%"
 goto :eof
